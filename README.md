@@ -1,5 +1,13 @@
 # sqlalchemy_query_restful_generator
-Generate REST APIs for sqlalchemy connections by easy setting. Sililar as xmysql.
+Generate REST APIs for sqlalchemy connections by easy setting. Similar as (xmysql)[https://github.com/o1lab/xmysql].
+
+# Usage
+
+1. Edit config.py, write down your db host. For now we only test presto & hive connection, so pick one.
+
+2. Start the server: python flask_demo.py <server_name>, which is in config.py
+
+3. Try curl http://localhost:5000/api/payments?_fields=customerNumber,checkNumber
 
 # API overview
 
