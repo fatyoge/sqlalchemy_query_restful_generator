@@ -40,7 +40,9 @@ class Connector():
         else:
             return True
     
-    def get_engine(self, schema='default'):
+    def get_engine(self, schema=None):
+        if schema is None:
+            schema = self.default_schema
         if schema in self.engine:
             return self.engine[schema]
         self.engine[schema] = self._create_engine(schema)
@@ -155,6 +157,96 @@ class PrestoConnector(Connector):
         logging.info(engine)
         return engine
 
+class MysqlConnector(Connector):
+    def __init__(self, name):
+        super().__init__(name)
+        #self.connect_url['driver'] = 'mysql'
+        self.connect_url['driver'] = 'mysql+pymysql'
+        pass
+    
+    def _create_engine(self, schema):
+        # url: mysql+pymysql://scott:tiger@localhost:3306/foo
+        port = 3306 if 'port' not in self.connect_url else self.connect_url['port']
+        url = '{}://{}:{}@{}:{}/{}'.format(
+                  self.connect_url['driver']
+                , self.connect_url['username']
+                , self.connect_url['password']
+                , self.connect_url['host']
+                , port
+                , schema
+                )
+        engine = create_engine(url)
+        logging.info('MysqlConnector create engine success.')
+        logging.info(engine)
+        return engine
+
+class PostgresConnector(Connector):
+    def __init__(self, name):
+        super().__init__(name)
+        self.connect_url['driver'] = 'postgresql'
+        pass
+    
+    def _create_engine(self, schema):
+        # url: postgresql://scott:tiger@localhost:5432/mydatabase
+        # logging.info(self.connect_url)
+        port = 5432 if 'port' not in self.connect_url else self.connect_url['port']
+        url = '{}://{}:{}@{}:{}/{}'.format(
+                  self.connect_url['driver']
+                , self.connect_url['username']
+                , self.connect_url['password']
+                , self.connect_url['host']
+                , port
+                , schema
+                )
+        engine = create_engine(url)
+        logging.info('PostgresConnector create engine success.')
+        logging.info(engine)
+        return engine
+
+class OracleConnector(Connector):
+    def __init__(self, name):
+        super().__init__(name)
+        self.connect_url['driver'] = 'oracle'
+        pass
+    
+    def _create_engine(self, schema):
+        # url: oracle://scott:tiger@127.0.0.1:1521/sidname
+        port = 1521 if 'port' not in self.connect_url else self.connect_url['port']
+        url = '{}://{}:{}@{}:{}/{}'.format(
+                  self.connect_url['driver']
+                , self.connect_url['username']
+                , self.connect_url['password']
+                , self.connect_url['host']
+                , port
+                , schema
+                )
+        engine = create_engine(url)
+        logging.info('OracleConnector create engine success.')
+        logging.info(engine)
+        return engine
+
+class MSSqlConnector(Connector):
+    def __init__(self, name):
+        super().__init__(name)
+        self.connect_url['driver'] = 'mssql+pymssql'
+        pass
+    
+    def _create_engine(self, schema):
+        # url: mssql+pymssql://scott:tiger@hostname:port/dbname
+        port = 1433 if 'port' not in self.connect_url else self.connect_url['port']
+        url = '{}://{}:{}@{}:{}/{}'.format(
+                  self.connect_url['driver']
+                , self.connect_url['username']
+                , self.connect_url['password']
+                , self.connect_url['host']
+                , port
+                , schema
+                )
+        engine = create_engine(url)
+        logging.info('MSSqlConnector create engine success.')
+        logging.info(engine)
+        return engine
+
 def singleton(cls):
     instance = cls()
     instance.__call__ = lambda: instance
@@ -167,6 +259,10 @@ class ConnectorFactory:
         self.connectorFactory = {
             'PrestoConnector': PrestoConnector,
             'HiveSqlaConnector': HiveSqlaConnector,
+            'MysqlConnector': MysqlConnector,
+            'PostgresConnector': PostgresConnector,
+            'OracleConnector': OracleConnector,
+            'MSSqlConnector': MSSqlConnector,
 #            'HiveDBApiConnector': HiveDBApiConnector
         }
         self.curr_connector = None
@@ -186,6 +282,8 @@ class ConnectorFactory:
         #connectorIns.get_engine()
 
         self.connector_list[server_name] = connectorIns
-        if self.curr_connector is None:
-            self.curr_connector = connectorIns
+        self.curr_connector = connectorIns
         return connectorIns
+
+    def connection_test(self):
+        print (self.curr_connector.get_engine().table_names())
