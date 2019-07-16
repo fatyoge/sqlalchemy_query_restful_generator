@@ -9,6 +9,16 @@ Generate REST APIs for sqlalchemy connections by easy setting. Similar as (xmysq
 
 3. Try curl http://localhost:5000/api/payments?_fields=customerNumber,checkNumber
 
+# DB connector support
+'''
+Presto
+Hive
+Mysql
+Postgres
+Oracle
+MSSql
+'''
+
 # API overview
 
 |HTTP TYPE|API URL|COMMENT|
