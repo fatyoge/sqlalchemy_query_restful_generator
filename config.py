@@ -8,6 +8,7 @@ class SETTING:
                 ,"port": 3600
                 ,"param" : "hive"
                 ,"schema": "default"
+                ,"metastore": "mysql+pymysql://hive:hive@/hive"
             },
             "table_whitelist":  [],
             "table_blacklist":  [],
@@ -20,6 +21,7 @@ class SETTING:
                 ,"port": 10000
                 ,"schema": "default"
                 ,"param" : "auth=NONE"
+                ,"metastore": "mysql+pymysql://hive:hive@/hive"
             },
             "table_whitelist":  [],
             "table_blacklist":  [],
