@@ -10,6 +10,7 @@ from flask_restful import marshal, fields
 from sqlalchemy.sql import sqltypes
 import re
 from utils import SQLFormator
+from flask_restful import fields
 
 class Connector():
     #url = 'driver://username:password@host:port/database'
@@ -40,26 +41,51 @@ class Connector():
         else:
             return True
     
-    def get_engine(self, schema=None):
-        if schema is None:
-            schema = self.default_schema
+    def _create_engine(self, schema=None, url=None):
+        if url is None:
+            url = self._generate_url(schema)
+        engine = create_engine(url)
+        logging.info('Create engine success.')
+        logging.info(engine)
+        return engine
+
+    def get_engine(self, schema=None, url=None):
         if schema in self.engine:
             return self.engine[schema]
-        self.engine[schema] = self._create_engine(schema)
+        self.engine[schema] = self._create_engine(schema=schema,url=url)
         return self.engine[schema]
     
-    def get_table(self, table_name):
+    def get_table(self, table_name, dbschema=None):
         logging.info('Start to create orm object: {}'.format(table_name))
         #print('Start to create orm object: {}'.format(table_name))
         table_params = table_name.split('.')
         table_name = table_params[-1]
-        dbschema = table_params[0] if len(table_params) == 2 else self.default_schema
+
+        if table_name in self.table_obj:
+            return self.table_obj[table_name]
+
+        if dbschema is None:
+            dbschema = table_params[0] if len(table_params) == 2 else self.default_schema
         #logging.info('dbschema: {}'.format(dbschema))
         table_orm = Table(table_name, MetaData(bind=self.get_engine(dbschema)), autoload=True)
-        if table_name not in self.table_obj:
-            self.table_obj[table_name] = table_orm
+        self.table_obj[table_name] = table_orm
         return table_orm
     
+    def get_table_schema(self, table):
+        if not self.check_permission(table):
+            logging.warning('No permission to access the table')
+            return json.dumps({'message': 'No permission to access the table'})
+        if isinstance(table, str):
+            table = self.get_table(table)
+        #schema = OrderedDict()
+        schema = []
+        for col in table.c:
+            schema.append(col.name, col.type, col.nullable)
+        return schema
+    
+    def get_table_list(self):
+        return self.get_engine().table_names()
+
     def query_table(self, table, fields=None, whereclause=None, order_by=None, offset=None, group_by=None, limit=10, page=None, **kwargs):
         if not self.check_permission(table):
             logging.warning('No permission to access the table')
@@ -106,19 +132,71 @@ class HiveSqlaConnector(Connector):
         self.connect_url['driver'] = 'hive'
         pass
     
-    def _create_engine(self, schema):
+    def set_addr(self, url):
+        super().set_addr(url)
+        self.metastore = url["metastore"]
+    
+    def get_engine(self, schema=None, url=None):
+        if len(self.engine) == 0:
+            self.engine["metastore"] = self._create_engine(url=self.metastore)
+        return super().get_engine(schema=schema, url=url)
+    
+    def get_table_list(self, schema=None, limit=10):
+        tbls = self.get_table('TBLS', "metastore")
+        dbs  = self.get_table('DBS', "metastore")
+
+        resource_type = OrderedDict()
+        resource_type['dbschema'] = fields.String
+        resource_type['owner'] = fields.String
+        resource_type['table_name'] = fields.String
+        resource_type['type'] = fields.String
+        #query_args['from_obj'] = [, self.get_table('', "metastore")]
+        query = select([dbs.c.NAME.label('dbschema'), 
+                        dbs.c.OWNER_NAME.label('owner'), 
+                        tbls.c.TBL_NAME.label('table_name'), 
+                        tbls.c.TBL_TYPE.label('type')])\
+                .where(dbs.c.DB_ID == tbls.c.DB_ID)
+        if schema is not None:
+            query = query.where(dbs.c.NAME == schema)
+
+        query = query.limit(limit)
+        result = query.execute().fetchall()
+        return json.dumps(marshal(result, resource_type))
+
+    def get_table_schema(self, table):
+        tbls = self.get_table('TBLS', "metastore")
+        cols  = self.get_table('COLUMNS_V2', "metastore")
+
+        resource_type = OrderedDict()
+        resource_type['COLUMN_NAME'] = fields.String
+        resource_type['TYPE'] = fields.String
+        resource_type['COMMENT'] = fields.String
+        #query_args['from_obj'] = [, self.get_table('', "metastore")]
+        query = select([cols.c.COLUMN_NAME, 
+                        cols.c.TYPE_NAME.label('TYPE'),
+                        cols.c.COMMENT])\
+                .where(tbls.c.TBL_ID == cols.c.CD_ID)\
+                .where(tbls.c.TBL_NAME == table)
+        #if schema is not None:
+        #    query = query.where(dbs.c.NAME == schema)
+        query = query.order_by(cols.c.INTEGER_IDX)
+        result = query.execute().fetchall()
+        return json.dumps(marshal(result, resource_type))
+    
+    def _generate_url(self, schema=None):
+        if schema is None:
+            schema = self.default_schema
         url = '{}://{}@{}:{}/{}?{}'.format(
-                  self.connect_url['driver']
+                self.connect_url['driver']
                 , self.connect_url['username']
                 , self.connect_url['host']
                 , self.connect_url['port']
                 , schema
                 , self.connect_url['param']
                 )
-        engine = create_engine(url)
-        logging.info('HiveSqlaConnector create engine success.')
-        logging.info(engine)
-        return engine
+        return url
+
+    
 
 #class HiveDBApiConnector(Connector):
 #    def __init__(self, name):
@@ -143,7 +221,9 @@ class PrestoConnector(Connector):
         self.connect_url['driver'] = 'presto'
         pass
     
-    def _create_engine(self, schema):
+    def _generate_url(self, schema=None):
+        if schema is None:
+            schema = self.default_schema
         url = '{}://{}@{}:{}/{}/{}'.format(
                   self.connect_url['driver']
                 , self.connect_url['username']
@@ -152,10 +232,7 @@ class PrestoConnector(Connector):
                 , self.connect_url['param']
                 , schema
                 )
-        engine = create_engine(url)
-        logging.info('PrestoConnector create engine success.')
-        logging.info(engine)
-        return engine
+        return url
 
 class MysqlConnector(Connector):
     def __init__(self, name):
@@ -164,7 +241,9 @@ class MysqlConnector(Connector):
         self.connect_url['driver'] = 'mysql+pymysql'
         pass
     
-    def _create_engine(self, schema):
+    def _generate_url(self, schema=None):
+        if schema is None:
+            schema = self.default_schema
         # url: mysql+pymysql://scott:tiger@localhost:3306/foo
         port = 3306 if 'port' not in self.connect_url else self.connect_url['port']
         url = '{}://{}:{}@{}:{}/{}'.format(
@@ -175,10 +254,7 @@ class MysqlConnector(Connector):
                 , port
                 , schema
                 )
-        engine = create_engine(url)
-        logging.info('MysqlConnector create engine success.')
-        logging.info(engine)
-        return engine
+        return url
 
 class PostgresConnector(Connector):
     def __init__(self, name):
@@ -186,7 +262,9 @@ class PostgresConnector(Connector):
         self.connect_url['driver'] = 'postgresql'
         pass
     
-    def _create_engine(self, schema):
+    def _generate_url(self, schema=None):
+        if schema is None:
+            schema = self.default_schema
         # url: postgresql://scott:tiger@localhost:5432/mydatabase
         # logging.info(self.connect_url)
         port = 5432 if 'port' not in self.connect_url else self.connect_url['port']
@@ -198,10 +276,7 @@ class PostgresConnector(Connector):
                 , port
                 , schema
                 )
-        engine = create_engine(url)
-        logging.info('PostgresConnector create engine success.')
-        logging.info(engine)
-        return engine
+        return url
 
 class OracleConnector(Connector):
     def __init__(self, name):
@@ -209,7 +284,9 @@ class OracleConnector(Connector):
         self.connect_url['driver'] = 'oracle'
         pass
     
-    def _create_engine(self, schema):
+    def _generate_url(self, schema=None):
+        if schema is None:
+            schema = self.default_schema
         # url: oracle://scott:tiger@127.0.0.1:1521/sidname
         port = 1521 if 'port' not in self.connect_url else self.connect_url['port']
         url = '{}://{}:{}@{}:{}/{}'.format(
@@ -220,10 +297,7 @@ class OracleConnector(Connector):
                 , port
                 , schema
                 )
-        engine = create_engine(url)
-        logging.info('OracleConnector create engine success.')
-        logging.info(engine)
-        return engine
+        return url
 
 class MSSqlConnector(Connector):
     def __init__(self, name):
@@ -231,7 +305,9 @@ class MSSqlConnector(Connector):
         self.connect_url['driver'] = 'mssql+pymssql'
         pass
     
-    def _create_engine(self, schema):
+    def _generate_url(self, schema=None):
+        if schema is None:
+            schema = self.default_schema
         # url: mssql+pymssql://scott:tiger@hostname:port/dbname
         port = 1433 if 'port' not in self.connect_url else self.connect_url['port']
         url = '{}://{}:{}@{}:{}/{}'.format(
@@ -242,10 +318,7 @@ class MSSqlConnector(Connector):
                 , port
                 , schema
                 )
-        engine = create_engine(url)
-        logging.info('MSSqlConnector create engine success.')
-        logging.info(engine)
-        return engine
+        return url
 
 def singleton(cls):
     instance = cls()
