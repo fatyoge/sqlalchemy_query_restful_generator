@@ -14,7 +14,7 @@ api_bp = Blueprint('api', __name__)
 api = Api(api_bp)
 
 todos = {}
-class Query(Resource):
+class QueryTable(Resource):
     #def __init__(self, )
     def get(self, table_name):
         db_conn = ConnectorFactory.curr_connector
@@ -31,29 +31,34 @@ class Query(Resource):
         #return json.dumps(marshal(db_conn.query_table(table_name, **args), resource_fields))
         return db_conn.query_table(table_name, **args)
     
-api.add_resource(Query, '/api/<string:table_name>/')
+class QueryStruct(Resource):
+    #def __init__(self, )
+    def get(self, table_name):
+        db_conn = ConnectorFactory.curr_connector
+        parser = reqparse.RequestParser()
+        #parser.add_argument('_db', type=str, dest='schema')
+        #args = parser.parse_args()
+        return db_conn.get_table_schema(table_name)
+
+class QueryTableList(Resource):
+    def get(self):
+        db_conn = ConnectorFactory.curr_connector
+        parser = reqparse.RequestParser()
+        parser.add_argument('_db', type=str, dest='schema')
+        parser.add_argument('_size', type=int, dest='limit')
+        args = parser.parse_args()
+        return db_conn.get_table_list(**args)
+
+    
+api.add_resource(QueryTable, '/api/<string:table_name>/')
+api.add_resource(QueryStruct, '/struct/<string:table_name>/')
+api.add_resource(QueryTableList, '/list/')
+#api.add_resource(QueryTableList, '/list/<string:dbschema>/')
+
+
+#api.add_resource(Query, '/api/')
 app.register_blueprint(api_bp)
-
-#class Flask_Rest_Server():
-#    def __init__(self):
-#        # load config to create db_connector
-#        cf = ConnectorFactory()
-#        presto_server = {
-#            "server_name": "presto_yz_targetmetric_dim",
-#            "connect_type": "PrestoConnector",
-#            "url": {
-#                "username": "hive"
-#                ,"host": "hdfs01-dev.yingzi.com"
-#                ,"port": 3600
-#                ,"param" : "hive"
-#                ,"schema": "yz_targetmetric_dim"
-#            }
-#        }
-#        self.db_conn = cf.get_or_createConnector(**presto_server)
-#        db_conn.get_table('dim_com_time')
-    
-
-    
+ 
 
 if __name__ == '__main__':
     if len(sys.argv) == 1:
